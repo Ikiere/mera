@@ -1,25 +1,66 @@
 {
   "expo": {
-    "name": "Mera",
-    "slug": "Mera",
+    "name": "MERA",
+    "slug": "mera",
+    "scheme": "mera",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#08070D",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mera.videodirector",
+      "infoPlist": {
+        "NSCameraUsageDescription": "MERA requires camera access to display the live preview and record talking-head videos.",
+        "NSMicrophoneUsageDescription": "MERA requires microphone access to record high-quality audio and synchronize script teleprompting to your speech.",
+        "NSSpeechRecognitionUsageDescription": "MERA uses speech recognition to synchronize the teleprompter scrolling with your natural speaking voice.",
+        "NSPhotoLibraryUsageDescription": "MERA requires photo library access to browse and save your recorded videos locally.",
+        "NSPhotoLibraryAddUsageDescription": "MERA needs permission to save completed recordings to your device photo library."
+      }
     },
     "android": {
+      "package": "com.mera.videodirector",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#08070D",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow MERA to access your camera to record videos and frame your shots.",
+          "microphonePermission": "Allow MERA to access your microphone for video audio and speech tracking."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow MERA to save your recordings to your photo library.",
+          "savePhotosPermission": "Allow MERA to save your recordings to your gallery."
+        }
+      ],
+      "expo-sqlite",
+      "expo-status-bar",
+      "expo-font"
+    ]
   }
 }
