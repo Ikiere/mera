@@ -56,6 +56,7 @@ export const authService = {
           data: {
             full_name: fullName.trim(),
           },
+          emailRedirectTo: 'mera://auth/callback',
         },
       });
 
@@ -152,6 +153,29 @@ export const authService = {
       await saveUserSetting('currentUserEmail', null);
     } catch (err) {
       console.warn('Sign out error:', err);
+    }
+  },
+
+  /**
+   * Check if current session exists or if email was verified via link
+   */
+  checkSession: async (email?: string): Promise<AuthResponse> => {
+    if (!isSupabaseConfigured()) return { success: false, message: 'Supabase not configured' };
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        return { success: false, message: error.message };
+      }
+      if (data?.session?.user) {
+        const userEmail = data.session.user.email || email || '';
+        if (userEmail) {
+          await saveUserSetting('currentUserEmail', userEmail.toLowerCase());
+        }
+        return { success: true, user: data.session.user, session: data.session };
+      }
+      return { success: false, message: 'No active session. Please enter the 6-digit code.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to check session' };
     }
   },
 

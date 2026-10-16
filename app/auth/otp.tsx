@@ -14,6 +14,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  AppState,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +23,7 @@ import { THEME } from '../../constants/theme';
 import { Button } from '../../components/common/Button';
 import { ErrorModal } from '../../components/common/ErrorModal';
 import { authService } from '../../services/supabase/authService';
+import { supabase } from '../../services/supabase/supabaseClient';
 import { saveUserSetting } from '../../services/database/settingsRepo';
 
 export default function OtpConfirmationScreen() {
@@ -40,6 +42,36 @@ export default function OtpConfirmationScreen() {
     title: '',
     message: '',
   });
+
+  // Automatically detect if user confirmed via email link
+  useEffect(() => {
+    // 1. Listen for Supabase session changes (fired if confirmation link or token completes)
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
+        await saveUserSetting('hasCompletedOnboarding', false);
+        if (email) {
+          await saveUserSetting('currentUserEmail', email.toLowerCase());
+        }
+        router.replace('/(tabs)');
+      }
+    });
+
+    // 2. Listen for AppState changes (when user returns from email client)
+    const appStateSub = AppState.addEventListener('change', async (nextState) => {
+      if (nextState === 'active') {
+        const res = await authService.checkSession(email);
+        if (res.success && res.user) {
+          await saveUserSetting('hasCompletedOnboarding', false);
+          router.replace('/(tabs)');
+        }
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+      appStateSub.remove();
+    };
+  }, [email, router]);
 
   useEffect(() => {
     let timer: any = null;
@@ -89,6 +121,23 @@ export default function OtpConfirmationScreen() {
         visible: true,
         title: 'Verification Failed',
         message: result.message || 'Incorrect 6-digit code. Please verify the code in your email and try again.',
+      });
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    setLoading(true);
+    const res = await authService.checkSession(email);
+    setLoading(false);
+
+    if (res.success) {
+      await saveUserSetting('hasCompletedOnboarding', false);
+      router.replace('/(tabs)');
+    } else {
+      setErrorModal({
+        visible: true,
+        title: 'Verification Pending',
+        message: 'Your account is not confirmed yet. Please enter the 6-digit code or tap the link in your email.',
       });
     }
   };
@@ -177,6 +226,22 @@ export default function OtpConfirmationScreen() {
               }
               style={styles.verifyBtn}
             />
+
+            {/* Alternative: If user tapped confirmation link in email */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCheckStatus}
+              style={styles.linkVerifyBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="link-outline" size={16} color={THEME.colors.accentLavender} />
+              <Text style={styles.linkVerifyText}>I clicked the link in my email</Text>
+            </TouchableOpacity>
 
             {/* Resend Action */}
             <View style={styles.resendRow}>
@@ -331,5 +396,37 @@ const styles = StyleSheet.create({
   resendTouchArea: {
     paddingVertical: 6,
     paddingHorizontal: 6,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: THEME.colors.borderSubtle,
+  },
+  dividerText: {
+    color: THEME.colors.textMuted,
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.semibold,
+    paddingHorizontal: 10,
+  },
+  linkVerifyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: THEME.radii.md,
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.25)',
+  },
+  linkVerifyText: {
+    fontSize: 13,
+    fontWeight: THEME.typography.weights.semibold,
+    color: THEME.colors.accentLavender,
   },
 });
