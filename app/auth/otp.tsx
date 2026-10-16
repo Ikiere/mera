@@ -30,7 +30,11 @@ import { saveUserSetting } from '../../services/database/settingsRepo';
 
 export default function OtpConfirmationScreen() {
   const router = useRouter();
-  const { email, password } = useLocalSearchParams<{ email: string; password?: string }>();
+  const { email, password, resent } = useLocalSearchParams<{
+    email: string;
+    password?: string;
+    resent?: string;
+  }>();
   const isMountedRef = useRef(true);
 
   const [otpCode, setOtpCode] = useState('');
@@ -257,6 +261,12 @@ export default function OtpConfirmationScreen() {
 
           {/* Heading */}
           <View style={styles.textSection}>
+            {resent === 'true' && (
+              <View style={styles.resentBadge}>
+                <Ionicons name="refresh-circle" size={16} color={THEME.colors.accentPrimary} />
+                <Text style={styles.resentBadgeText}>New confirmation email sent to your inbox!</Text>
+              </View>
+            )}
             <Text style={styles.title}>Confirm Your Email</Text>
             <Text style={styles.subtitle}>
               We sent a verification link to{' '}
@@ -415,6 +425,23 @@ const styles = StyleSheet.create({
   textSection: {
     alignItems: 'center',
     marginBottom: 16,
+  },
+  resentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 10,
+  },
+  resentBadgeText: {
+    fontSize: 12,
+    fontWeight: THEME.typography.weights.semibold,
+    color: THEME.colors.accentLavender,
   },
   title: {
     fontSize: 26,

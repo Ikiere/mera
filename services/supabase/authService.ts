@@ -12,6 +12,7 @@ export interface AuthResponse {
   message?: string;
   user?: any;
   session?: any;
+  isUnconfirmed?: boolean;
 }
 
 export const authService = {
@@ -28,7 +29,18 @@ export const authService = {
       });
 
       if (error) {
-        return { success: false, message: error.message };
+        const msg = error.message?.toLowerCase() || '';
+        const isUnconfirmed =
+          msg.includes('not confirmed') ||
+          msg.includes('unconfirmed') ||
+          msg.includes('not verified') ||
+          (error as any).code === 'email_not_confirmed';
+
+        return {
+          success: false,
+          message: error.message,
+          isUnconfirmed,
+        };
       }
 
       if (!data.user) {
@@ -114,14 +126,17 @@ export const authService = {
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: cleanEmail,
+        options: {
+          emailRedirectTo: 'mera://auth/callback',
+        },
       });
 
       if (error) {
         return { success: false, message: error.message };
       }
-      return { success: true, message: 'Verification code resent to your email.' };
+      return { success: true, message: 'Verification email resent.' };
     } catch (err: any) {
-      return { success: false, message: err?.message || 'Could not resend code' };
+      return { success: false, message: err?.message || 'Could not resend email' };
     }
   },
 

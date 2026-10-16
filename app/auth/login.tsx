@@ -65,6 +65,20 @@ export default function LoginScreen() {
 
     if (result.success) {
       router.replace('/(tabs)');
+    } else if (result.isUnconfirmed) {
+      // User's account is not yet confirmed
+      // Resend confirmation email to user's inbox
+      authService.resendOtp(email);
+
+      // Redirect user directly to the confirmation screen with email & password
+      router.push({
+        pathname: '/auth/otp',
+        params: {
+          email: email.trim().toLowerCase(),
+          password: password,
+          resent: 'true',
+        },
+      });
     } else {
       setErrorModal({
         visible: true,
