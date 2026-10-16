@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { Button } from '../../components/common/Button';
+import { ErrorModal } from '../../components/common/ErrorModal';
 import { authService } from '../../services/supabase/authService';
 import { saveUserSetting } from '../../services/database/settingsRepo';
 
@@ -30,6 +31,15 @@ export default function OtpConfirmationScreen() {
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(30);
+  const [errorModal, setErrorModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   useEffect(() => {
     let timer: any = null;
@@ -45,7 +55,11 @@ export default function OtpConfirmationScreen() {
 
   const handleVerify = async () => {
     if (!otpCode || otpCode.trim().length !== 6) {
-      Alert.alert('Invalid Code', 'Please enter the complete 6-digit verification code.');
+      setErrorModal({
+        visible: true,
+        title: 'Invalid Code',
+        message: 'Please enter the complete 6-digit verification code sent to your email.',
+      });
       return;
     }
 
@@ -71,7 +85,11 @@ export default function OtpConfirmationScreen() {
         ]
       );
     } else {
-      Alert.alert('Verification Failed', result.message || 'Incorrect code. Please try again.');
+      setErrorModal({
+        visible: true,
+        title: 'Verification Failed',
+        message: result.message || 'Incorrect 6-digit code. Please verify the code in your email and try again.',
+      });
     }
   };
 
@@ -86,7 +104,11 @@ export default function OtpConfirmationScreen() {
       setResendCooldown(30);
       Alert.alert('Code Sent', result.message || 'A new 6-digit code has been sent to your email.');
     } else {
-      Alert.alert('Notice', result.message || 'Failed to resend code.');
+      setErrorModal({
+        visible: true,
+        title: 'Notice',
+        message: result.message || 'Failed to resend code.',
+      });
     }
   };
 
@@ -174,6 +196,14 @@ export default function OtpConfirmationScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Custom Error Pop-up Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        onClose={() => setErrorModal((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

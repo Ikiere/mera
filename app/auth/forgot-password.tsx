@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { Button } from '../../components/common/Button';
+import { ErrorModal } from '../../components/common/ErrorModal';
 import { authService } from '../../services/supabase/authService';
 
 export default function ForgotPasswordScreen() {
@@ -28,10 +29,23 @@ export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [errorModal, setErrorModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   const handleReset = async () => {
     if (!email.trim()) {
-      Alert.alert('Required Field', 'Please enter your account email address.');
+      setErrorModal({
+        visible: true,
+        title: 'Required Field',
+        message: 'Please enter your account email address.',
+      });
       return;
     }
 
@@ -42,7 +56,11 @@ export default function ForgotPasswordScreen() {
     if (result.success) {
       setSubmitted(true);
     } else {
-      Alert.alert('Error', result.message || 'Could not send reset instructions.');
+      setErrorModal({
+        visible: true,
+        title: 'Reset Request Failed',
+        message: result.message || 'Could not send reset instructions.',
+      });
     }
   };
 
@@ -148,6 +166,14 @@ export default function ForgotPasswordScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Custom Error Pop-up Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        onClose={() => setErrorModal((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

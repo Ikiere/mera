@@ -5,7 +5,7 @@
  * Leads directly to OTP Confirmation page.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -27,12 +26,14 @@ import Svg, { Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { Button } from '../../components/common/Button';
+import { ErrorModal } from '../../components/common/ErrorModal';
 import { authService } from '../../services/supabase/authService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function SignUpScreen() {
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -40,20 +41,41 @@ export default function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorModal, setErrorModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   const handleSignUp = async () => {
     if (!fullName.trim() || !email.trim() || !password.trim()) {
-      Alert.alert('Required Fields', 'Please complete all required fields.');
+      setErrorModal({
+        visible: true,
+        title: 'Required Fields',
+        message: 'Please complete all required fields.',
+      });
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Weak Password', 'Password must be at least 6 characters.');
+      setErrorModal({
+        visible: true,
+        title: 'Weak Password',
+        message: 'Password must be at least 6 characters.',
+      });
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Password Mismatch', 'Passwords do not match. Please verify your password.');
+      setErrorModal({
+        visible: true,
+        title: 'Password Mismatch',
+        message: 'Passwords do not match. Please verify your password.',
+      });
       return;
     }
 
@@ -68,7 +90,11 @@ export default function SignUpScreen() {
         params: { email: email.trim().toLowerCase(), fullName: fullName.trim() },
       });
     } else {
-      Alert.alert('Sign Up Failed', result.message || 'Could not create account.');
+      setErrorModal({
+        visible: true,
+        title: 'Sign Up Failed',
+        message: result.message || 'Could not create account.',
+      });
     }
   };
 
@@ -78,8 +104,11 @@ export default function SignUpScreen() {
       style={styles.keyboardAvoid}
     >
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         bounces={false}
         showsVerticalScrollIndicator={false}
       >
@@ -166,6 +195,7 @@ export default function SignUpScreen() {
                 autoCapitalize="words"
                 value={fullName}
                 onChangeText={setFullName}
+                onFocus={() => scrollViewRef.current?.scrollTo({ y: 40, animated: true })}
               />
             </View>
           </View>
@@ -189,6 +219,7 @@ export default function SignUpScreen() {
                 autoCorrect={false}
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => scrollViewRef.current?.scrollTo({ y: 100, animated: true })}
               />
             </View>
           </View>
@@ -210,6 +241,7 @@ export default function SignUpScreen() {
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
+                onFocus={() => scrollViewRef.current?.scrollTo({ y: 160, animated: true })}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword((prev) => !prev)}
@@ -242,6 +274,7 @@ export default function SignUpScreen() {
                 secureTextEntry={!showPassword}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
+                onFocus={() => scrollViewRef.current?.scrollTo({ y: 220, animated: true })}
               />
             </View>
           </View>
@@ -278,6 +311,14 @@ export default function SignUpScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Custom Error Pop-up Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        onClose={() => setErrorModal((prev) => ({ ...prev, visible: false }))}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -293,7 +334,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 64,
+    paddingBottom: 160,
   },
   heroBannerContainer: {
     width: '100%',

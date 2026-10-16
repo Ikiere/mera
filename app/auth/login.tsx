@@ -5,7 +5,7 @@
  * Authentication is compulsory to use the app.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -27,21 +26,36 @@ import Svg, { Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { Button } from '../../components/common/Button';
+import { ErrorModal } from '../../components/common/ErrorModal';
 import { authService } from '../../services/supabase/authService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function LoginScreen() {
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorModal, setErrorModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   const handleSignIn = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Required Fields', 'Please enter your email and password.');
+      setErrorModal({
+        visible: true,
+        title: 'Required Fields',
+        message: 'Please enter both your email address and password to sign in.',
+      });
       return;
     }
 
@@ -52,7 +66,11 @@ export default function LoginScreen() {
     if (result.success) {
       router.replace('/(tabs)');
     } else {
-      Alert.alert('Sign In Failed', result.message || 'Check your email and password.');
+      setErrorModal({
+        visible: true,
+        title: 'Sign In Failed',
+        message: result.message || 'Check your email and password.',
+      });
     }
   };
 
@@ -62,8 +80,11 @@ export default function LoginScreen() {
       style={styles.keyboardAvoid}
     >
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         bounces={false}
         showsVerticalScrollIndicator={false}
       >
@@ -143,6 +164,7 @@ export default function LoginScreen() {
                 autoCorrect={false}
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => scrollViewRef.current?.scrollTo({ y: 70, animated: true })}
               />
             </View>
           </View>
@@ -164,6 +186,7 @@ export default function LoginScreen() {
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
+                onFocus={() => scrollViewRef.current?.scrollTo({ y: 170, animated: true })}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword((prev) => !prev)}
@@ -220,6 +243,14 @@ export default function LoginScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Custom Error Pop-up Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        onClose={() => setErrorModal((prev) => ({ ...prev, visible: false }))}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -235,7 +266,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 64,
+    paddingBottom: 150,
   },
   heroBannerContainer: {
     width: '100%',
