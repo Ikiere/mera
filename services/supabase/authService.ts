@@ -21,16 +21,6 @@ export const authService = {
   signIn: async (email: string, password: string): Promise<AuthResponse> => {
     const cleanEmail = email.trim().toLowerCase();
 
-    if (!isSupabaseConfigured()) {
-      // Graceful offline demo mode
-      await saveUserSetting('currentUserEmail', cleanEmail);
-      return {
-        success: true,
-        message: 'Signed in (Offline Mode)',
-        user: { email: cleanEmail, id: 'demo_user' },
-      };
-    }
-
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
@@ -39,6 +29,10 @@ export const authService = {
 
       if (error) {
         return { success: false, message: error.message };
+      }
+
+      if (!data.user) {
+        return { success: false, message: 'Invalid credentials. User not found.' };
       }
 
       await saveUserSetting('currentUserEmail', cleanEmail);
@@ -53,16 +47,6 @@ export const authService = {
    */
   signUp: async (email: string, password: string, fullName: string): Promise<AuthResponse> => {
     const cleanEmail = email.trim().toLowerCase();
-
-    if (!isSupabaseConfigured()) {
-      // Offline fallback: simulate signup requiring OTP confirmation
-      await saveUserSetting('pending_user_email' as any, cleanEmail as any);
-      return {
-        success: true,
-        message: 'Verification code sent to your email (Demo Mode: use code 123456)',
-        user: { email: cleanEmail, user_metadata: { full_name: fullName } },
-      };
-    }
 
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -79,7 +63,6 @@ export const authService = {
         return { success: false, message: error.message };
       }
 
-      await saveUserSetting('pending_user_email' as any, cleanEmail as any);
       return { success: true, user: data.user, session: data.session };
     } catch (err: any) {
       return { success: false, message: err?.message || 'Signup failed' };
@@ -93,21 +76,8 @@ export const authService = {
     const cleanEmail = email.trim().toLowerCase();
     const cleanToken = token.trim();
 
-    if (!isSupabaseConfigured()) {
-      // Accept demo token or any 6-digit token in demo mode
-      if (cleanToken.length === 6) {
-        await saveUserSetting('currentUserEmail', cleanEmail);
-        return {
-          success: true,
-          message: 'Account verified successfully!',
-          user: { email: cleanEmail },
-        };
-      }
-      return { success: false, message: 'Invalid 6-digit verification code.' };
-    }
-
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
+      let { data, error } = await supabase.auth.verifyOtp({
         email: cleanEmail,
         token: cleanToken,
         type: 'signup',
@@ -123,7 +93,7 @@ export const authService = {
         if (recoveryCheck.error) {
           return { success: false, message: error.message };
         }
-        return { success: true, user: recoveryCheck.data.user, session: recoveryCheck.data.session };
+        data = recoveryCheck.data;
       }
 
       await saveUserSetting('currentUserEmail', cleanEmail);
@@ -139,10 +109,6 @@ export const authService = {
   resendOtp: async (email: string): Promise<AuthResponse> => {
     const cleanEmail = email.trim().toLowerCase();
 
-    if (!isSupabaseConfigured()) {
-      return { success: true, message: 'New verification code sent! (Demo: 123456)' };
-    }
-
     try {
       const { error } = await supabase.auth.resend({
         type: 'signup',
@@ -152,7 +118,7 @@ export const authService = {
       if (error) {
         return { success: false, message: error.message };
       }
-      return { success: true, message: 'Verification code resent successfully.' };
+      return { success: true, message: 'Verification code resent to your email.' };
     } catch (err: any) {
       return { success: false, message: err?.message || 'Could not resend code' };
     }
@@ -163,13 +129,6 @@ export const authService = {
    */
   resetPassword: async (email: string): Promise<AuthResponse> => {
     const cleanEmail = email.trim().toLowerCase();
-
-    if (!isSupabaseConfigured()) {
-      return {
-        success: true,
-        message: 'Password reset instructions sent to your email (Demo Mode).',
-      };
-    }
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);

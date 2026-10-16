@@ -210,7 +210,10 @@ export default function LoginScreen() {
             <Text style={styles.footerText}>Don't have an account? </Text>
             <TouchableOpacity
               onPress={() => router.push('/auth/signup')}
+              style={styles.signupTouchArea}
               activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 16, left: 12, right: 12 }}
+              accessibilityRole="button"
             >
               <Text style={styles.signupLink}>Sign Up</Text>
             </TouchableOpacity>
@@ -232,7 +235,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 36,
+    paddingBottom: 64,
   },
   heroBannerContainer: {
     width: '100%',
@@ -347,6 +350,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 28,
+  },
+  signupTouchArea: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
   },
   footerText: {
     fontSize: 14,

@@ -162,7 +162,11 @@ export default function OtpConfirmationScreen() {
               {resendCooldown > 0 ? (
                 <Text style={styles.cooldownText}>Resend in {resendCooldown}s</Text>
               ) : (
-                <TouchableOpacity onPress={handleResend}>
+                <TouchableOpacity
+                  onPress={handleResend}
+                  style={styles.resendTouchArea}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
                   <Text style={styles.resendLink}>Resend Code</Text>
                 </TouchableOpacity>
               )}
@@ -293,5 +297,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: THEME.typography.weights.bold,
     color: THEME.colors.accentPrimary,
+  },
+  resendTouchArea: {
+    paddingVertical: 6,
+    paddingHorizontal: 6,
   },
 });
