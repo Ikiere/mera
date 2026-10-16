@@ -1,9 +1,10 @@
 /**
- * MERA Authentication: OTP Confirmation Screen
- * Matches required flow: Sign Up -> OTP Confirmation -> Onboarding Experience.
+ * MERA Authentication: Email Verification / OTP Screen
+ * Seamlessly handles Supabase Free tier (confirmation links) and 6-digit OTP codes.
+ * Auto-detects when user confirms via link and immediately unlocks the app.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,11 +14,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   AppState,
+  ScrollView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { Button } from '../../components/common/Button';
@@ -28,10 +30,13 @@ import { saveUserSetting } from '../../services/database/settingsRepo';
 
 export default function OtpConfirmationScreen() {
   const router = useRouter();
-  const { email } = useLocalSearchParams<{ email: string }>();
+  const { email, password } = useLocalSearchParams<{ email: string; password?: string }>();
+  const isMountedRef = useRef(true);
 
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [showManualCode, setShowManualCode] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(30);
   const [errorModal, setErrorModal] = useState<{
     visible: boolean;
@@ -43,36 +48,77 @@ export default function OtpConfirmationScreen() {
     message: '',
   });
 
-  // Automatically detect if user confirmed via email link
+  // Successful verification transition helper
+  const handleSuccessRedirect = async () => {
+    await saveUserSetting('hasCompletedOnboarding', false);
+    if (email) {
+      await saveUserSetting('currentUserEmail', email.toLowerCase());
+    }
+    router.replace('/(tabs)');
+  };
+
+  // Check if email has been verified on Supabase
+  const checkVerification = async (silent = true) => {
+    if (!silent) setCheckingStatus(true);
+
+    try {
+      // 1. Check existing session
+      const sessionResult = await authService.checkSession(email);
+      if (sessionResult.success && sessionResult.user) {
+        await handleSuccessRedirect();
+        return true;
+      }
+
+      // 2. If user registered with password, test signing in
+      // When email confirmation link is clicked in Supabase, signIn immediately succeeds!
+      if (password && email) {
+        const signResult = await authService.signIn(email, password);
+        if (signResult.success) {
+          await handleSuccessRedirect();
+          return true;
+        }
+      }
+    } catch {
+      // Quiet fail during background poll
+    } finally {
+      if (!silent && isMountedRef.current) setCheckingStatus(false);
+    }
+    return false;
+  };
+
+  // 1. Listen for Supabase session changes (fired when link or deep link completes)
   useEffect(() => {
-    // 1. Listen for Supabase session changes (fired if confirmation link or token completes)
+    isMountedRef.current = true;
+
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
-        await saveUserSetting('hasCompletedOnboarding', false);
-        if (email) {
-          await saveUserSetting('currentUserEmail', email.toLowerCase());
-        }
-        router.replace('/(tabs)');
+        await handleSuccessRedirect();
       }
     });
 
-    // 2. Listen for AppState changes (when user returns from email client)
+    // 2. Listen for AppState changes (e.g. when user switches back from their email app)
     const appStateSub = AppState.addEventListener('change', async (nextState) => {
       if (nextState === 'active') {
-        const res = await authService.checkSession(email);
-        if (res.success && res.user) {
-          await saveUserSetting('hasCompletedOnboarding', false);
-          router.replace('/(tabs)');
-        }
+        await checkVerification(true);
       }
     });
 
+    // 3. Auto-poll every 3.5 seconds to detect link click in real-time without user doing anything
+    const pollInterval = setInterval(() => {
+      if (isMountedRef.current) {
+        checkVerification(true);
+      }
+    }, 3500);
+
     return () => {
+      isMountedRef.current = false;
       authListener?.subscription?.unsubscribe();
       appStateSub.remove();
+      clearInterval(pollInterval);
     };
-  }, [email, router]);
+  }, [email, password]);
 
+  // Cooldown countdown for resend button
   useEffect(() => {
     let timer: any = null;
     if (resendCooldown > 0) {
@@ -85,63 +131,77 @@ export default function OtpConfirmationScreen() {
     };
   }, [resendCooldown]);
 
-  const handleVerify = async () => {
-    if (!otpCode || otpCode.trim().length !== 6) {
+  // Open the native email app directly
+  const handleOpenEmailApp = async () => {
+    try {
+      if (Platform.OS === 'ios') {
+        await Linking.openURL('message:');
+      } else {
+        await Linking.openURL('mailto:');
+      }
+    } catch {
+      // If default scheme fails, fallback to mailto
+      try {
+        await Linking.openURL('mailto:');
+      } catch {
+        setErrorModal({
+          visible: true,
+          title: 'Email App',
+          message: 'Please open your preferred email app to check your inbox.',
+        });
+      }
+    }
+  };
+
+  // Manual Check Verification Button
+  const handleManualCheckStatus = async () => {
+    const verified = await checkVerification(false);
+    if (!verified) {
       setErrorModal({
         visible: true,
-        title: 'Invalid Code',
-        message: 'Please enter the complete 6-digit verification code sent to your email.',
+        title: 'Verification Incomplete',
+        message: 'Your email has not been confirmed yet. Please tap the confirmation link in your email and try again.',
+      });
+    }
+  };
+
+  // Handle manual 6-digit code or pasted token/link
+  const handleVerifyCodeOrToken = async () => {
+    let rawToken = otpCode.trim();
+
+    if (!rawToken) {
+      setErrorModal({
+        visible: true,
+        title: 'Input Required',
+        message: 'Please enter your 6-digit code or paste the verification link from your email.',
       });
       return;
     }
 
+    // Extract token if user pasted a full URL
+    if (rawToken.includes('token=')) {
+      const match = rawToken.match(/token=([a-zA-Z0-9_\-]+)/);
+      if (match && match[1]) {
+        rawToken = match[1];
+      }
+    }
+
     setLoading(true);
-    const result = await authService.verifyOtp(email || '', otpCode.trim());
+    const result = await authService.verifyOtp(email || '', rawToken);
     setLoading(false);
 
     if (result.success) {
-      // Flow requirement: After OTP confirmation, show the Onboarding page!
-      await saveUserSetting('hasCompletedOnboarding', false);
-
-      Alert.alert(
-        'Email Confirmed',
-        'Your account has been verified successfully. Welcome to MERA!',
-        [
-          {
-            text: 'Continue',
-            onPress: () => {
-              // Replace root to trigger the 3-page onboarding walkthrough
-              router.replace('/(tabs)');
-            },
-          },
-        ]
-      );
+      await handleSuccessRedirect();
     } else {
       setErrorModal({
         visible: true,
         title: 'Verification Failed',
-        message: result.message || 'Incorrect 6-digit code. Please verify the code in your email and try again.',
+        message: result.message || 'Incorrect code or expired token. Please check your email or tap the link directly.',
       });
     }
   };
 
-  const handleCheckStatus = async () => {
-    setLoading(true);
-    const res = await authService.checkSession(email);
-    setLoading(false);
-
-    if (res.success) {
-      await saveUserSetting('hasCompletedOnboarding', false);
-      router.replace('/(tabs)');
-    } else {
-      setErrorModal({
-        visible: true,
-        title: 'Verification Pending',
-        message: 'Your account is not confirmed yet. Please enter the 6-digit code or tap the link in your email.',
-      });
-    }
-  };
-
+  // Resend confirmation email
   const handleResend = async () => {
     if (resendCooldown > 0 || !email) return;
 
@@ -151,12 +211,16 @@ export default function OtpConfirmationScreen() {
 
     if (result.success) {
       setResendCooldown(30);
-      Alert.alert('Code Sent', result.message || 'A new 6-digit code has been sent to your email.');
+      setErrorModal({
+        visible: true,
+        title: 'Email Sent',
+        message: 'A new verification email has been sent. Please check your inbox.',
+      });
     } else {
       setErrorModal({
         visible: true,
         title: 'Notice',
-        message: result.message || 'Failed to resend code.',
+        message: result.message || 'Failed to resend confirmation email.',
       });
     }
   };
@@ -167,85 +231,118 @@ export default function OtpConfirmationScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoid}
       >
-        <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity
               onPress={() => router.back()}
               style={styles.backBtn}
-              accessibilityLabel="Back"
+              accessibilityLabel="Back to Sign Up"
+              activeOpacity={0.7}
             >
               <Ionicons name="arrow-back" size={20} color={THEME.colors.textPrimary} />
             </TouchableOpacity>
           </View>
 
-          {/* Icon Circle */}
+          {/* Hero Visual Badge */}
           <View style={styles.iconContainer}>
             <View style={styles.iconCircle}>
-              <Ionicons name="shield-checkmark" size={38} color={THEME.colors.accentPrimary} />
+              <Ionicons name="mail-open-outline" size={38} color={THEME.colors.accentPrimary} />
             </View>
           </View>
 
           {/* Heading */}
           <View style={styles.textSection}>
-            <Text style={styles.title}>Confirm Verification Code</Text>
+            <Text style={styles.title}>Confirm Your Email</Text>
             <Text style={styles.subtitle}>
-              We sent a 6-digit code to{' '}
-              <Text style={styles.emailHighlight}>{email || 'your email'}</Text>. Enter it below to activate your account.
+              We sent a verification link to{' '}
+              <Text style={styles.emailHighlight}>{email || 'your email'}</Text>.
+            </Text>
+            <Text style={styles.instructions}>
+              Tap the link in your email to instantly verify your account and start using MERA.
             </Text>
           </View>
 
-          {/* OTP Input Card */}
+          {/* MAIN ACTION CARD */}
           <View style={styles.card}>
-            <Text style={styles.inputLabel}>6-DIGIT CODE</Text>
-            <View style={styles.otpInputWrapper}>
-              <TextInput
-                style={styles.otpInput}
-                placeholder="123456"
-                placeholderTextColor={THEME.colors.textMuted}
-                keyboardType="number-pad"
-                maxLength={6}
-                value={otpCode}
-                onChangeText={setOtpCode}
-                autoFocus
-              />
+            {/* Live Polling Status Indicator */}
+            <View style={styles.statusIndicator}>
+              <ActivityIndicator size="small" color={THEME.colors.accentPrimary} style={{ marginRight: 8 }} />
+              <Text style={styles.statusText}>
+                {checkingStatus ? 'Checking verification...' : 'Waiting for confirmation link tap...'}
+              </Text>
             </View>
 
+            {/* Primary Action: Open Email App */}
             <Button
-              title={loading ? 'Verifying...' : 'Confirm & Continue'}
+              title="Open Email App"
               variant="primary"
               size="lg"
-              onPress={handleVerify}
-              disabled={loading || otpCode.trim().length !== 6}
-              icon={
-                loading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
-                )
-              }
-              style={styles.verifyBtn}
+              onPress={handleOpenEmailApp}
+              icon={<Ionicons name="mail" size={20} color="#FFFFFF" />}
+              style={styles.openMailBtn}
             />
 
-            {/* Alternative: If user tapped confirmation link in email */}
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>OR</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
+            {/* Secondary Action: I've Already Confirmed */}
             <TouchableOpacity
-              onPress={handleCheckStatus}
-              style={styles.linkVerifyBtn}
+              onPress={handleManualCheckStatus}
+              style={styles.checkStatusBtn}
+              activeOpacity={0.7}
+              disabled={checkingStatus}
+            >
+              <Ionicons name="checkmark-circle-outline" size={18} color={THEME.colors.accentLavender} />
+              <Text style={styles.checkStatusText}>I've confirmed in my email</Text>
+            </TouchableOpacity>
+
+            {/* Accordion Toggle: Manual Code/Token input */}
+            <TouchableOpacity
+              onPress={() => setShowManualCode((prev) => !prev)}
+              style={styles.accordionToggle}
               activeOpacity={0.7}
             >
-              <Ionicons name="link-outline" size={16} color={THEME.colors.accentLavender} />
-              <Text style={styles.linkVerifyText}>I clicked the link in my email</Text>
+              <Text style={styles.accordionText}>
+                {showManualCode ? 'Hide manual code entry' : 'Have a 6-digit code or link? Enter manually'}
+              </Text>
+              <Ionicons
+                name={showManualCode ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={THEME.colors.textMuted}
+              />
             </TouchableOpacity>
+
+            {/* Expandable Manual Input Section */}
+            {showManualCode && (
+              <View style={styles.manualSection}>
+                <Text style={styles.inputLabel}>ENTER CODE OR PASTE VERIFICATION LINK</Text>
+                <View style={styles.tokenInputWrapper}>
+                  <TextInput
+                    style={styles.tokenInput}
+                    placeholder="123456 or paste link"
+                    placeholderTextColor={THEME.colors.textMuted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    value={otpCode}
+                    onChangeText={setOtpCode}
+                  />
+                </View>
+                <Button
+                  title={loading ? 'Verifying...' : 'Verify Code'}
+                  variant="secondary"
+                  size="md"
+                  onPress={handleVerifyCodeOrToken}
+                  disabled={loading || !otpCode.trim()}
+                  style={styles.verifyManualBtn}
+                />
+              </View>
+            )}
 
             {/* Resend Action */}
             <View style={styles.resendRow}>
-              <Text style={styles.resendText}>Didn't receive the code? </Text>
+              <Text style={styles.resendText}>Didn't receive the email? </Text>
               {resendCooldown > 0 ? (
                 <Text style={styles.cooldownText}>Resend in {resendCooldown}s</Text>
               ) : (
@@ -254,15 +351,15 @@ export default function OtpConfirmationScreen() {
                   style={styles.resendTouchArea}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <Text style={styles.resendLink}>Resend Code</Text>
+                  <Text style={styles.resendLink}>Resend Email</Text>
                 </TouchableOpacity>
               )}
             </View>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Custom Error Pop-up Modal */}
+      {/* Custom Obsidian Error/Alert Pop-up Modal */}
       <ErrorModal
         visible={errorModal.visible}
         title={errorModal.title}
@@ -281,11 +378,11 @@ const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
   },
-  container: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 22,
+    paddingBottom: 40,
     justifyContent: 'space-between',
-    paddingBottom: 32,
   },
   header: {
     paddingTop: 8,
@@ -302,8 +399,8 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: 16,
+    marginBottom: 8,
   },
   iconCircle: {
     width: 80,
@@ -317,25 +414,33 @@ const styles = StyleSheet.create({
   },
   textSection: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: THEME.typography.weights.heavy,
     color: THEME.colors.textPrimary,
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   subtitle: {
     fontSize: 14,
     color: THEME.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 21,
-    maxWidth: 320,
+    lineHeight: 20,
+    marginBottom: 6,
   },
   emailHighlight: {
     color: THEME.colors.accentLavender,
     fontWeight: THEME.typography.weights.semibold,
+  },
+  instructions: {
+    fontSize: 13,
+    color: THEME.colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 300,
   },
   card: {
     backgroundColor: THEME.colors.surfaceElevated,
@@ -345,39 +450,91 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.borderSubtle,
     gap: 14,
   },
+  statusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    borderRadius: THEME.radii.md,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+  },
+  statusText: {
+    fontSize: 13,
+    color: THEME.colors.accentLavender,
+    fontWeight: THEME.typography.weights.medium,
+  },
+  openMailBtn: {
+    width: '100%',
+    height: 52,
+  },
+  checkStatusBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 48,
+    borderRadius: THEME.radii.lg,
+    backgroundColor: THEME.colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderSubtle,
+  },
+  checkStatusText: {
+    fontSize: 14,
+    fontWeight: THEME.typography.weights.semibold,
+    color: THEME.colors.textPrimary,
+  },
+  accordionToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  accordionText: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+    fontWeight: THEME.typography.weights.medium,
+  },
+  manualSection: {
+    backgroundColor: THEME.colors.surfaceSecondary,
+    borderRadius: THEME.radii.md,
+    padding: 14,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderSubtle,
+  },
   inputLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: THEME.typography.weights.bold,
     color: THEME.colors.textMuted,
     letterSpacing: 0.6,
   },
-  otpInputWrapper: {
-    backgroundColor: THEME.colors.surfaceSecondary,
+  tokenInputWrapper: {
+    backgroundColor: THEME.colors.surfaceElevated,
     borderRadius: THEME.radii.md,
     borderWidth: 1,
-    borderColor: THEME.colors.accentPrimary,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
+    borderColor: THEME.colors.borderSubtle,
+    paddingHorizontal: 12,
+    height: 44,
     justifyContent: 'center',
   },
-  otpInput: {
-    fontSize: 28,
-    fontWeight: THEME.typography.weights.heavy,
-    letterSpacing: 10,
+  tokenInput: {
+    fontSize: 14,
     color: THEME.colors.textPrimary,
-    textAlign: 'center',
-    width: '100%',
   },
-  verifyBtn: {
-    marginTop: 6,
+  verifyManualBtn: {
     width: '100%',
+    height: 44,
   },
   resendRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
   resendText: {
     fontSize: 13,
@@ -396,37 +553,5 @@ const styles = StyleSheet.create({
   resendTouchArea: {
     paddingVertical: 6,
     paddingHorizontal: 6,
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 4,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: THEME.colors.borderSubtle,
-  },
-  dividerText: {
-    color: THEME.colors.textMuted,
-    fontSize: 11,
-    fontWeight: THEME.typography.weights.semibold,
-    paddingHorizontal: 10,
-  },
-  linkVerifyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    borderRadius: THEME.radii.md,
-    backgroundColor: 'rgba(139, 92, 246, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.25)',
-  },
-  linkVerifyText: {
-    fontSize: 13,
-    fontWeight: THEME.typography.weights.semibold,
-    color: THEME.colors.accentLavender,
   },
 });

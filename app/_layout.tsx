@@ -88,6 +88,13 @@ export default function RootLayout() {
                 headerShown: false,
               }}
             />
+            <Stack.Screen
+              name="auth/callback"
+              options={{
+                presentation: 'card',
+                headerShown: false,
+              }}
+            />
           </Stack>
         </View>
       </SafeAreaProvider>

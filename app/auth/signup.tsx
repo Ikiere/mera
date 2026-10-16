@@ -84,10 +84,20 @@ export default function SignUpScreen() {
     setLoading(false);
 
     if (result.success) {
-      // Direct requirement: Navigate to OTP confirmation page after sign up
+      // If Supabase has "Confirm email" toggled off, session is already active
+      if (result.session) {
+        router.replace('/(tabs)');
+        return;
+      }
+
+      // Navigate to verification page with email & password for auto-detection on link click
       router.push({
         pathname: '/auth/otp',
-        params: { email: email.trim().toLowerCase(), fullName: fullName.trim() },
+        params: {
+          email: email.trim().toLowerCase(),
+          fullName: fullName.trim(),
+          password: password,
+        },
       });
     } else {
       setErrorModal({
